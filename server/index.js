@@ -2,9 +2,13 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
+const multer = require('multer');
+const papaparse = require('papaparse');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const upload = multer({ dest: 'uploads/' });
 
 // Middleware
 app.use(cors());
@@ -428,6 +432,155 @@ app.put('/api/events/:id/notes', (req, res) => {
       
       res.json(event);
     });
+  });
+});
+
+// Export events to CSV
+app.get('/api/events/export', (req, res) => {
+  const query = `
+    SELECT 
+      e.title, 
+      c.name as category, 
+      e.nextOccurrence, 
+      e.isRecurring, 
+      e.recurrenceInterval, 
+      e.recurrenceUnit, 
+      e.notes
+    FROM events e 
+    JOIN categories c ON e.category_id = c.id 
+    ORDER BY e.nextOccurrence ASC
+  `;
+  
+  db.all(query, [], (err, rows) => {
+    if (err) {
+      console.error('Error fetching events for export:', err);
+      return res.status(500).json({ error: 'Failed to fetch events for export' });
+    }
+    
+    // Convert boolean to 'yes'/'no' for CSV clarity
+    const eventsToExport = rows.map(row => ({
+      ...row,
+      isRecurring: row.isRecurring ? 'yes' : 'no'
+    }));
+
+    const csv = papaparse.unparse(eventsToExport);
+    
+    res.header('Content-Type', 'text/csv');
+    res.attachment('stontr_events.csv');
+    res.send(csv);
+  });
+});
+
+// Import events from CSV
+app.post('/api/events/import', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded.' });
+  }
+
+  const filePath = req.file.path;
+  const fileContent = fs.readFileSync(filePath, 'utf8');
+  fs.unlinkSync(filePath); // Clean up uploaded file from server
+
+  papaparse.parse(fileContent, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      const eventsToImport = results.data;
+      let importedCount = 0;
+      let failedCount = 0;
+
+      // Use a transaction to ensure all-or-nothing import
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION', (err) => {
+          if (err) {
+            return res.status(500).json({ error: 'Failed to start transaction.' });
+          }
+        });
+
+        const promises = eventsToImport.map(event => {
+          return new Promise(async (resolve, reject) => {
+            try {
+              // Step 1: Find or Create Category
+              const categoryName = (event.category || 'general').trim().toLowerCase();
+              
+              let category = await new Promise((resolveDb, rejectDb) => {
+                db.get('SELECT * FROM categories WHERE name = ?', [categoryName], (err, row) => {
+                  if (err) return rejectDb(err);
+                  resolveDb(row);
+                });
+              });
+
+              if (!category) {
+                category = await new Promise((resolveDb, rejectDb) => {
+                  const randomColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+                  db.run(
+                    'INSERT INTO categories (name, color, createdAt) VALUES (?, ?, ?)',
+                    [categoryName, randomColor, new Date().toISOString()],
+                    function (err) {
+                      if (err) return rejectDb(err);
+                      db.get('SELECT * FROM categories WHERE id = ?', this.lastID, (err, row) => {
+                        if (err) return rejectDb(err);
+                        resolveDb(row);
+                      });
+                    }
+                  );
+                });
+              }
+
+              // Step 2: Insert Event
+              const now = new Date().toISOString();
+              const insertQuery = `
+                INSERT INTO events (title, category_id, nextOccurrence, isRecurring, recurrenceInterval, recurrenceUnit, notes, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `;
+              const params = [
+                event.title,
+                category.id,
+                new Date(event.nextOccurrence).toISOString(),
+                (event.isRecurring || '').toLowerCase() === 'yes' ? 1 : 0,
+                event.recurrenceInterval || null,
+                event.recurrenceUnit || null,
+                event.notes || null,
+                now,
+                now
+              ];
+              
+              await new Promise((resolveDb, rejectDb) => {
+                 db.run(insertQuery, params, (err) => {
+                     if(err) return rejectDb(err);
+                     importedCount++;
+                     resolveDb();
+                 });
+              });
+              
+              resolve();
+            } catch (err) {
+              failedCount++;
+              console.error('Failed to import row:', event, err);
+              resolve(); // Resolve even on error to not break Promise.all
+            }
+          });
+        });
+
+        Promise.all(promises).then(() => {
+          db.run('COMMIT', (err) => {
+            if (err) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: 'Transaction failed, rolled back.' });
+            }
+            res.json({ 
+              message: `Import complete. ${importedCount} events imported, ${failedCount} events failed.`,
+              importedCount,
+              failedCount
+            });
+          });
+        });
+      });
+    },
+    error: (error) => {
+      console.error('CSV parsing error:', error.message);
+      res.status(400).json({ error: 'Failed to parse CSV file.' });
+    }
   });
 });
 

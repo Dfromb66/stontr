@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format, formatDistanceToNow, parseISO, addYears, addMonths, addDays } from 'date-fns';
 import EventCard from './components/EventCard';
 import AddEventModal from './components/AddEventModal';
@@ -16,6 +16,7 @@ function App() {
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
 
   // Load events and categories from database on component mount
   useEffect(() => {
@@ -115,6 +116,43 @@ function App() {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const blob = await apiService.exportEvents();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `stontr_events_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (err) {
+      console.error('Failed to export events:', err);
+      alert('Failed to export events. Please try again.');
+    }
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const result = await apiService.importEvents(formData);
+      alert(result.message);
+      loadData(); // Reload data to show imported events
+    } catch (err) {
+      console.error('Failed to import events:', err);
+      alert(`Failed to import events: ${err.message}`);
+    } finally {
+      // Reset the file input so the same file can be selected again
+      e.target.value = null;
+    }
+  };
+
   const handleCategoryCreated = (newCategory) => {
     setCategories(prev => [...prev, newCategory]);
     setShowCategoryManager(false);
@@ -190,6 +228,19 @@ function App() {
         </div>
         
         <div className="category-filter-container">
+          <button className="filter-action-btn" onClick={handleExport}>Export</button>
+          
+          <button className="filter-action-btn" onClick={() => fileInputRef.current.click()}>
+            Import
+          </button>
+          <input 
+            type="file" 
+            ref={fileInputRef}
+            style={{ display: 'none' }} 
+            accept=".csv"
+            onChange={handleImport}
+          />
+          
           <select 
             className="category-select" 
             value={selectedCategory} 
@@ -203,7 +254,7 @@ function App() {
             ))}
           </select>
           <button
-            className="manage-categories-btn"
+            className="filter-action-btn"
             onClick={() => setShowCategoryManager(true)}
           >
             Manage

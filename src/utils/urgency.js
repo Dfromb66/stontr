@@ -1,13 +1,13 @@
-import { differenceInDays, addYears, addMonths, addDays } from 'date-fns';
+import { differenceInDays, addYears, addMonths, addDays, startOfDay } from 'date-fns';
 
 /**
- * Calculates the number of days remaining until a given date.
+ * Calculates the number of days remaining until a given date, ignoring the time of day.
  * @param {string} dateString - The future date in ISO format (e.g., "2024-12-25").
- * @returns {number} The number of days remaining.
+ * @returns {number} The number of calendar days remaining.
  */
 const getDaysRemaining = (dateString) => {
-  const now = new Date();
-  const eventDate = new Date(dateString);
+  const now = startOfDay(new Date());
+  const eventDate = startOfDay(new Date(dateString));
   return differenceInDays(eventDate, now);
 };
 

@@ -73,6 +73,38 @@ class ApiService {
     });
   }
 
+  // Export events as CSV
+  async exportEvents() {
+    const response = await fetch(`${API_BASE_URL}/events/export`);
+    if (!response.ok) {
+      throw new Error('Failed to export events.');
+    }
+    return response.blob();
+  }
+
+  // Import events from CSV
+  async importEvents(formData) {
+    // Note: We are not using the standard `request` method here
+    // because it's configured for JSON, not multipart/form-data.
+    const url = `${API_BASE_URL}/events/import`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('API import failed:', error);
+      throw error;
+    }
+  }
+
   // Health check
   async healthCheck() {
     return this.request('/health');

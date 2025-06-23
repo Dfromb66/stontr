@@ -84,6 +84,10 @@ code {
   gap: 10px;
 }
 
+.category-filter-container .btn-secondary {
+  height: 43px; /* Match height of select */
+}
+
 .category-select {
   padding: 10px 15px;
   border-radius: 8px;
@@ -104,7 +108,7 @@ code {
   color: white;
 }
 
-.manage-categories-btn {
+.filter-action-btn {
   padding: 10px 15px;
   border: none;
   border-radius: 8px;
@@ -113,9 +117,19 @@ code {
   cursor: pointer;
   transition: all 0.3s ease;
   font-weight: 500;
+  height: 43px; /* Match height of select */
+  display: flex;
+  align-items: center;
 }
-.manage-categories-btn:hover {
+
+.filter-action-btn:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.manage-categories-btn {
+  /* This class is now deprecated, but we'll keep it for now
+     in case it's used elsewhere, though it should be removed
+     in a future refactor. */
 }
 
 /* --- Event Grid & Cards --- */
